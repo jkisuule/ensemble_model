@@ -42,7 +42,6 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.ensemble import VotingClassifier, StackingClassifier
@@ -92,6 +91,10 @@ def save_text(path, text):
 # target variable used for dropout forecasting.
 _df = pd.read_csv(DATA_PATH)
 
+
+#saving in our output folder in a table format
+#save_text(os.path.join(OUTPUT_DIR, 'dataset_preview.txt'), _df.head().to_markdown())
+
 # Cleaning column names to avoid accidental spacing issues
 _df.columns = [c.strip() for c in _df.columns]
 
@@ -131,6 +134,18 @@ _df['Target_binary'] = np.where(
 # Separate predictors and target
 X = _df.drop(columns=[TARGET_COL, 'Target_binary']).copy()
 y = _df['Target_binary'].copy()
+
+# Show all columns
+pd.set_option('display.max_columns', 1000)
+
+# Display first five rows
+print(_df.head())
+
+#summary statistics of the model
+print(_df.describe())
+
+#summary statistics of the model
+print(_df.info())
 
 
 # ----------------------------------
@@ -252,11 +267,7 @@ cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
 # ---------------------------------------------------------
 # SMOTE is applied only to training folds, which is the
 # correct methodology for dealing with class imbalance.
-svm_pipe = ImbPipeline(steps=[
-    ('preprocessor', preprocessor),
-    ('smote', SMOTE(random_state=RANDOM_STATE)),
-    ('model', SVC(probability=True, random_state=RANDOM_STATE))
-])
+
 
 knn_pipe = ImbPipeline(steps=[
     ('preprocessor', preprocessor),
@@ -274,11 +285,6 @@ nb_pipe = ImbPipeline(steps=[
 # ----------------------------------------------
 # 17. HYPERPARAMETER GRIDS FOR OPTIMIZATION
 # ----------------------------------------------
-svm_grid = {
-    'model__C': [0.1, 1, 10],
-    'model__kernel': ['rbf', 'linear'],
-    'model__gamma': ['scale', 'auto']
-}
 
 knn_grid = {
     'model__n_neighbors': [5, 7, 9, 11],
@@ -293,12 +299,9 @@ nb_grid = {
 # ----------------------------------------------------
 # 18. GRID SEARCH FOR BEST MODEL CONFIGURATIONS
 # ----------------------------------------------------
-svm_search = GridSearchCV(svm_pipe, svm_grid, cv=cv, scoring='f1', n_jobs=-1)
+
 knn_search = GridSearchCV(knn_pipe, knn_grid, cv=cv, scoring='f1', n_jobs=-1)
 nb_search = GridSearchCV(nb_pipe, nb_grid, cv=cv, scoring='f1', n_jobs=-1)
-
-print('Tuning SVM...')
-svm_search.fit(X_train, y_train)
 
 print('Tuning KNN...')
 knn_search.fit(X_train, y_train)
@@ -307,7 +310,6 @@ print('Tuning Bayesian classifier...')
 nb_search.fit(X_train, y_train)
 
 # Retrieve optimized base learners
-best_svm = svm_search.best_estimator_
 best_knn = knn_search.best_estimator_
 best_nb = nb_search.best_estimator_
 
@@ -317,13 +319,13 @@ best_nb = nb_search.best_estimator_
 # -------------------------------------------------------
 # Soft voting averages probabilities from all three models.
 soft_voting = VotingClassifier(
-    estimators=[('svm', best_svm), ('knn', best_knn), ('nb', best_nb)],
+    estimators=[('knn', best_knn), ('nb', best_nb)],
     voting='soft'
 )
 
 # Stacking uses outputs of base models as input for a final learner.
 stacking = StackingClassifier(
-    estimators=[('svm', best_svm), ('knn', best_knn), ('nb', best_nb)],
+    estimators=[('knn', best_knn), ('nb', best_nb)],
     final_estimator=GaussianNB(),
     stack_method='predict_proba',
     cv=5,
@@ -335,36 +337,30 @@ stacking = StackingClassifier(
 # 20. STORING ALL MODELS FOR COMPARISON
 # ------------------------------------------------------
 models = {
-    'SVM': best_svm,
     'KNN': best_knn,
     'Bayesian_Network_Proxy': best_nb,
     'Soft_Voting_Ensemble': soft_voting,
     'Stacking_Ensemble': stacking
 }
-
-
-# ------------------------------------------------------
-# 21. TRAIN, TEST, AND EVALUATE EACH MODEL
-# ------------------------------------------------------
+# 21. TRAINING, TESTING, AND EVALUATING EACH MODEL
 results = []
 reports = {}
 conf_mats = {}
-
 for name, model in models.items():
     print(f'Training and evaluating {name}...')
 
-    # Fit model on training data
+    # Fitting model on training data
     model.fit(X_train, y_train)
 
-    # Predict on unseen test data
+    # Predicting on unseen test data
     preds = model.predict(X_test)
     probs = model.predict_proba(X_test)[:, positive_class]
 
-    # Compute confusion matrix
+    # Computing confusion matrix
     cm = confusion_matrix(y_test, preds)
     tn, fp, fn, tp = cm.ravel()
 
-    # Store evaluation metrics
+    # Storing evaluation metrics
     row = {
         'model': name,
         'accuracy': accuracy_score(y_test, preds),
@@ -378,12 +374,11 @@ for name, model in models.items():
         'fp': int(fp),
         'fn': int(fn)
     }
-
     results.append(row)
     reports[name] = classification_report(y_test, preds, target_names=class_names)
     conf_mats[name] = cm
 
-# Convert model results into a dataframe and rank by F1-score
+# Converting model results into a dataframe and rank by F1-score
 results_df = pd.DataFrame(results).sort_values('f1_dropout', ascending=False)
 results_df.to_csv(os.path.join(OUTPUT_DIR, 'model_comparison_results.csv'), index=False)
 
@@ -393,37 +388,13 @@ results_df.to_csv(os.path.join(OUTPUT_DIR, 'model_comparison_results.csv'), inde
 # ------------------------------------------------------
 with open(os.path.join(OUTPUT_DIR, 'best_parameters.json'), 'w', encoding='utf-8') as f:
     json.dump({
-        'SVM': svm_search.best_params_,
         'KNN': knn_search.best_params_,
         'Bayesian_Network_Proxy': nb_search.best_params_
     }, f, indent=2)
 
 
-# ------------------------------------------------------
-# 23. FEATURE IMPORTANCE / INTERPRETABILITY
-# ------------------------------------------------------
-# Permutation importance is computed using the best SVM pipeline
-# as an interpretable companion model.
-best_svm.fit(X_train, y_train)
-perm = permutation_importance(
-    best_svm,
-    X_test,
-    y_test,
-    n_repeats=10,
-    random_state=RANDOM_STATE,
-    scoring='f1'
-)
 
-feature_importance = pd.DataFrame({
-    'feature': X.columns,
-    'importance_mean': perm.importances_mean
-}).sort_values('importance_mean', ascending=False)
-
-feature_importance.to_csv(os.path.join(OUTPUT_DIR, 'permutation_feature_importance.csv'), index=False)
-
-
-# ------------------------------------------------------
-# 24. CREATING VISUALIZATIONS
+# 23. CREATING VISUALIZATIONS
 # ------------------------------------------------------
 sns.set_theme(style='whitegrid')
 
@@ -507,17 +478,9 @@ plt.tight_layout()
 plt.savefig(os.path.join(OUTPUT_DIR, 'confusion_matrices.png'), dpi=200)
 plt.close()
 
-# Top feature importance chart
-plt.figure(figsize=(10, 7))
-sns.barplot(data=feature_importance.head(15), x='importance_mean', y='feature', color='#01696f')
-plt.title('Top 15 Permutation Feature Importances')
-plt.tight_layout()
-plt.savefig(os.path.join(OUTPUT_DIR, 'feature_importance.png'), dpi=200)
-plt.close()
-
 
 # ------------------------------------------------------
-# 25. GENERATING A TEXT REPORT
+# 24. GENERATING A TEXT REPORT
 # ------------------------------------------------------
 report_lines = []
 report_lines.append('ENSEMBLE MODEL REPORT FOR STUDENT DROPOUT FORECASTING')
@@ -532,7 +495,6 @@ report_lines.append(class_dist.to_string(index=False))
 report_lines.append('')
 report_lines.append('Best hyperparameters:')
 report_lines.append(json.dumps({
-    'SVM': svm_search.best_params_,
     'KNN': knn_search.best_params_,
     'Bayesian_Network_Proxy': nb_search.best_params_
 }, indent=2))
@@ -553,7 +515,7 @@ save_text(os.path.join(OUTPUT_DIR, 'ensemble_model_report.txt'), '\n'.join(repor
 
 
 # ------------------------------------------------------
-# 26. FINAL COMPLETION MESSAGE
+# 25. FINAL COMPLETION MESSAGE
 # ------------------------------------------------------
 print('\nDone. Main outputs saved in the output/ folder:')
 print('- model_comparison_results.csv')
