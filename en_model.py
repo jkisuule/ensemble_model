@@ -58,10 +58,8 @@ from sklearn.inspection import permutation_importance
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 
-
-# ---------------------------------
 # 4. GLOBAL SETTINGS AND FILE PATHS
-# ---------------------------------
+
 RANDOM_STATE = 42
 np.random.seed(RANDOM_STATE)
 OUTPUT_DIR = 'output'
@@ -75,18 +73,14 @@ if not os.path.exists(DATA_PATH):
         "dataset.csv not found.Check path"
     )
 
-
-# -----------------------------------
 # 5. HELPER FUNCTION TO SAVE TEXT FILE
-# -----------------------------------
 def save_text(path, text):
     with open(path, 'w', encoding='utf-8') as f:
         f.write(text)
 
 
-# -----------------------
 # 6. LOADING THE CSV DATASET
-# -----------------------
+
 # The attached CSV contains the student features and the final
 # target variable used for dropout forecasting.
 _df = pd.read_csv(DATA_PATH)
@@ -102,6 +96,11 @@ _df.columns = [c.strip() for c in _df.columns]
 if TARGET_COL not in _df.columns:
     raise ValueError("Target column not found in dataset.csv")
 
+# Show all columns
+pd.set_option('display.max_columns', 1000)
+
+# Display first five rows
+print(_df.head())
 
 # ---------------------------------------------------
 # 7. EXPLORING MISSING VALUES IN THE DATASET
@@ -135,11 +134,6 @@ _df['Target_binary'] = np.where(
 X = _df.drop(columns=[TARGET_COL, 'Target_binary']).copy()
 y = _df['Target_binary'].copy()
 
-# Show all columns
-pd.set_option('display.max_columns', 1000)
-
-# Display first five rows
-print(_df.head())
 
 #summary statistics of the model
 print(_df.describe())
@@ -266,7 +260,6 @@ cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
 # 16. DEFINING BASE LEARNERS WITH SMOTE INSIDE THE PIPELINE
 # ---------------------------------------------------------
 # SMOTE is applied only to training folds, which is the
-# correct methodology for dealing with class imbalance.
 
 
 knn_pipe = ImbPipeline(steps=[
@@ -434,7 +427,8 @@ plt.tight_layout()
 plt.savefig(os.path.join(OUTPUT_DIR, 'correlation_heatmap.png'), dpi=200)
 plt.close()
 
-# Pairplot for selected variables
+
+# Pairplot for selected variables with clear x-axis labels
 key_plot_cols = [
     c for c in [
         'Curricular units 1st sem (approved)',
@@ -446,8 +440,34 @@ key_plot_cols = [
 if len(key_plot_cols) >= 2:
     pair_df = X[key_plot_cols].copy()
     pair_df['Target'] = y.values
-    sns.pairplot(pair_df, hue='Target', corner=True, diag_kind='hist', plot_kws={'alpha': 0.6, 's': 25})
-    plt.savefig(os.path.join(OUTPUT_DIR, 'pairplot_key_features.png'), dpi=200)
+
+    # Renaming columns to shorter labels for clearer axis display
+    pair_df = pair_df.rename(columns={
+        'Curricular units 1st sem (approved)': '1st Sem\nApproved Units',
+        'Curricular units 2nd sem (approved)': '2nd Sem\nApproved Units',
+        'Age at enrollment': 'Age at\nEnrollment'
+    })
+
+    g = sns.pairplot(
+        pair_df,
+        hue='Target',
+        corner=True,
+        diag_kind='hist',
+        height=3.2,
+        aspect=1.2,
+        plot_kws={'alpha': 0.6, 's': 25}
+    )
+
+    # Improving axis readability
+    for ax in g.axes.flatten():
+        if ax is not None:
+            ax.tick_params(axis='x', labelrotation=0, labelsize=10)
+            ax.tick_params(axis='y', labelsize=10)
+            ax.xaxis.label.set_size(11)
+            ax.yaxis.label.set_size(11)
+
+    plt.subplots_adjust(bottom=0.12, left=0.10, right=0.88, top=0.95)
+    plt.savefig(os.path.join(OUTPUT_DIR, 'pairplot_key_features.png'), dpi=300, bbox_inches='tight')
     plt.close('all')
 
 # Model performance comparison chart
